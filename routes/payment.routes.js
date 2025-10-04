@@ -1,3 +1,4 @@
+// routes/payment.routes.js
 const express = require("express");
 const crypto = require("crypto");
 const qs = require("qs");
@@ -12,11 +13,32 @@ const DEV_TRUST_RETURN =
 const ALLOW_DEV_CONFIRM =
   process.env.ALLOW_DEV_CONFIRM === "true" || process.env.NODE_ENV !== "production";
 
-/* ============================================================
-   Helper Functions
-   ============================================================ */
+// ====== Provider constants ======
+const PROVIDER = "VNPAY";
 
-// yyyyMMddHHmmss
+// ====== ENV guard ======
+function ensureEnv() {
+  const miss = [];
+  if (!process.env.VNPAY_URL) miss.push("VNPAY_URL");
+  if (!process.env.VNPAY_TMN_CODE) miss.push("VNPAY_TMN_CODE");
+  if (!process.env.VNPAY_HASH_SECRET) miss.push("VNPAY_HASH_SECRET");
+  if (!process.env.VNPAY_RETURN_URL) miss.push("VNPAY_RETURN_URL");
+  if (miss.length) {
+    const msg = `Thiếu ENV: ${miss.join(", ")}`;
+    const err = new Error(msg);
+    err.status = 500;
+    throw err;
+  }
+}
+function ensureHashOnly() {
+  if (!process.env.VNPAY_HASH_SECRET) {
+    const err = new Error("Thiếu ENV: VNPAY_HASH_SECRET");
+    err.status = 500;
+    throw err;
+  }
+}
+
+// yyyyMMddHHmmss (theo VNPay)
 function formatDate(date) {
   const pad = (n) => n.toString().padStart(2, "0");
   return (
@@ -38,15 +60,11 @@ function sortObject(obj) {
   }
   return sorted;
 }
-
-// HMAC SHA512 theo chuẩn VNPay
 function vnpHash(params, secret) {
   const sorted = sortObject(params);
   const signData = qs.stringify(sorted, { encode: false });
   return crypto.createHmac("sha512", secret).update(signData, "utf-8").digest("hex");
 }
-
-// Lấy IP client (đủ dùng)
 function getClientIp(req) {
   return (
     (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim() ||
@@ -54,45 +72,73 @@ function getClientIp(req) {
     "127.0.0.1"
   );
 }
+function toVndInt(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n);
+}
+function normStatus(s) {
+  return String(s || "").trim().toLowerCase();
+}
+function pickVnp(obj) {
+  const out = {};
+  for (const k in obj) if (k.startsWith("vnp_")) out[k] = obj[k];
+  return out;
+}
+// Map VNPay rspCode -> transaction.Status ('success' | 'failed')
+function txStatusFromRsp(rspCode) {
+  return String(rspCode) === "00" ? "success" : "failed";
+}
 
 /* ============================================================
-   2️⃣ API: Tạo URL Thanh Toán VNPay
-   ============================================================ */
-router.post("/vnpay", authenticateJWT, async (req, res) => {
+  1) Tạo URL Thanh Toán VNPay (client chỉ gửi orderId)
+  ============================================================ */
+router.post("/vnpay", authenticateJWT, async (req, res, next) => {
   try {
-    const { orderId } = req.body;
-    if (!orderId) return res.status(400).json({ error: "Thiếu orderId" });
+    ensureEnv();
+
+    const orderId = Number(req.body?.orderId);
+    if (!Number.isInteger(orderId)) {
+      return res.status(400).json({ success: false, error: { code: "BAD_REQUEST", message: "Thiếu/ sai orderId" } });
+    }
 
     const pool = await poolPromise;
 
-    // Chỉ cho phép thanh toán đơn thuộc user hiện tại
+    // Chỉ thanh toán đơn thuộc user hiện tại
     const orderRes = await pool
       .request()
       .input("Id", sql.Int, orderId)
       .input("UserId", sql.Int, req.user.userId)
-      .query(
-        "SELECT Id, Total, Status, PaymentStatus, PaymentMethod FROM Orders WHERE Id=@Id AND UserId=@UserId"
-      );
+      .query(`
+        SELECT TOP 1 Id, UserId, Total, Status, PaymentStatus, PaymentMethod
+        FROM Orders WHERE Id=@Id AND UserId=@UserId
+      `);
 
-    if (!orderRes.recordset.length)
-      return res.status(404).json({ error: "Không tìm thấy đơn hàng của bạn" });
+    if (!orderRes.recordset.length) {
+      return res.status(404).json({ success: false, error: { code: "ORDER_NOT_FOUND", message: "Không tìm thấy đơn hàng của bạn" } });
+    }
 
     const order = orderRes.recordset[0];
+    const status = normStatus(order.Status);
+    const payStatus = normStatus(order.PaymentStatus);
 
-    if (order.Status === "cancelled")
-      return res.status(400).json({ error: "Đơn hàng đã bị hủy" });
-    if (order.PaymentStatus === "paid")
-      return res.status(400).json({ error: "Đơn hàng đã thanh toán" });
+    if (status === "cancelled") {
+      return res.status(400).json({ success: false, error: { code: "ORDER_CANCELLED", message: "Đơn hàng đã bị hủy" } });
+    }
+    if (payStatus === "paid") {
+      return res.status(400).json({ success: false, error: { code: "ORDER_PAID", message: "Đơn hàng đã thanh toán" } });
+    }
 
-    const amount = Number(order.Total);
-    if (!amount || amount <= 0)
-      return res.status(400).json({ error: "Số tiền thanh toán không hợp lệ" });
+    const amountVnd = toVndInt(order.Total);
+    if (!amountVnd || amountVnd <= 0) {
+      return res.status(400).json({ success: false, error: { code: "AMOUNT_INVALID", message: "Số tiền không hợp lệ" } });
+    }
 
     const vnp_Params = {
       vnp_Version: "2.1.0",
       vnp_Command: "pay",
       vnp_TmnCode: process.env.VNPAY_TMN_CODE,
-      vnp_Amount: amount * 100,
+      vnp_Amount: amountVnd * 100, // VNPay dùng đơn vị x100
       vnp_CreateDate: formatDate(new Date()),
       vnp_CurrCode: "VND",
       vnp_IpAddr: getClientIp(req),
@@ -100,7 +146,7 @@ router.post("/vnpay", authenticateJWT, async (req, res) => {
       vnp_OrderInfo: `Thanh toan don hang #${orderId}`,
       vnp_OrderType: "other",
       vnp_ReturnUrl: process.env.VNPAY_RETURN_URL,
-      vnp_TxnRef: `${orderId}_${Date.now()}`, // unique mỗi lần thanh toán
+      vnp_TxnRef: `${orderId}_${Date.now()}`, // unique mỗi lần yêu cầu
     };
 
     const signed = vnpHash(vnp_Params, process.env.VNPAY_HASH_SECRET);
@@ -108,123 +154,128 @@ router.post("/vnpay", authenticateJWT, async (req, res) => {
     const query = qs.stringify(sortedParams, { encode: false });
     const paymentUrl = `${process.env.VNPAY_URL}?${query}&vnp_SecureHash=${signed}`;
 
-    // (Tuỳ chọn) set PaymentMethod = 'VNPay' ngay khi tạo link để nhất quán hiển thị
+    // (Optional) gắn PaymentMethod='VNPAY' để UI hiển thị nhất quán
     try {
       await pool
         .request()
-        .input("Id", sql.Int, orderId)
-        .query("UPDATE Orders SET PaymentMethod='VNPay' WHERE Id=@Id AND PaymentStatus<>'paid'");
-    } catch (_) {
-      // bỏ qua nếu thất bại, IPN sẽ set lại
-    }
+        .input("Id", sql.Int, order.Id)
+        .query("UPDATE Orders SET PaymentMethod='VNPAY' WHERE Id=@Id AND PaymentStatus<>'paid'");
+    } catch (_) {}
 
-    return res.json({ paymentUrl, orderId, amount });
+    return res.json({ success: true, data: { paymentUrl, orderId, amount: amountVnd } });
   } catch (err) {
-    console.error("VNPay create error:", err);
-    res.status(500).json({ error: err.message });
+    return next(err);
   }
 });
 
 /* ============================================================
-   3️⃣ VNPay Return (Frontend Redirect)
-   - Prod: chỉ trả JSON, KHÔNG ghi DB
-   - Dev (VNPAY_TRUST_RETURN=true hoặc NODE_ENV != 'production'): ghi DB idempotent
-   ============================================================ */
+  2) VNPay Return (Frontend Redirect)
+  - PROD: chỉ verify & trả JSON, KHÔNG ghi DB
+  - DEV: (VNPAY_TRUST_RETURN=true hoặc NODE_ENV != 'production') có thể ghi DB idempotent
+  ============================================================ */
 router.get(/^\/vnpay_return(\?|&)?/, async (req, res) => {
   try {
-    const fullUrl = req.originalUrl || "";
-    const marker = "/vnpay_return";
-    let q = fullUrl.slice(fullUrl.indexOf(marker) + marker.length);
-    if (q.startsWith("?") || q.startsWith("&")) q = q.slice(1);
+    ensureHashOnly();
 
-    const vnp_Params = qs.parse(q);
-    if (!Object.keys(vnp_Params).length)
-      return res.status(400).json({ error: "Thiếu tham số VNPay" });
+    const vnp_Params = pickVnp(req.query);
+    if (!Object.keys(vnp_Params).length) {
+      return res.status(400).json({ success: false, error: { code: "MISSING_PARAMS", message: "Thiếu tham số VNPay" } });
+    }
 
     const secureHash = vnp_Params.vnp_SecureHash;
     delete vnp_Params.vnp_SecureHash;
     delete vnp_Params.vnp_SecureHashType;
 
+    if (!secureHash) {
+      return res.status(400).json({ success: false, error: { code: "MISSING_SIGNATURE", message: "Thiếu vnp_SecureHash" } });
+    }
+
     const checkSum = vnpHash(vnp_Params, process.env.VNPAY_HASH_SECRET);
 
-    const [orderIdStr] = (vnp_Params.vnp_TxnRef || "").split("_");
+    const [orderIdStr] = String(vnp_Params.vnp_TxnRef || "").split("_");
     const orderId = parseInt(orderIdStr, 10);
-    const rspCode = vnp_Params.vnp_ResponseCode || "";
-    const amount = (Number(vnp_Params.vnp_Amount) || 0) / 100;
+    const rspCode = String(vnp_Params.vnp_ResponseCode || "");
+    const amountFromVnp = (Number(vnp_Params.vnp_Amount) || 0) / 100;
 
-    const valid = !!secureHash && secureHash.toLowerCase() === checkSum.toLowerCase();
+    const valid = secureHash.toLowerCase() === checkSum.toLowerCase();
     const payload = {
-      status: rspCode === "00" && valid ? "success" : "failed",
-      orderId,
-      amount,
-      rspCode,
+      success: valid && rspCode === "00",
+      data: { orderId, amount: amountFromVnp, rspCode },
     };
 
     if (DEV_TRUST_RETURN && valid && Number.isInteger(orderId)) {
-      try {
-        const pool = await poolPromise;
-        const orderRes = await pool
-          .request()
-          .input("Id", sql.Int, orderId)
-          .query("SELECT Id, PaymentStatus, UserId, Total FROM Orders WHERE Id=@Id");
+      const pool = await poolPromise;
 
-        if (orderRes.recordset.length) {
-          const order = orderRes.recordset[0];
+      // Đối chiếu amount với DB
+      const oRs = await pool.request().input("Id", sql.Int, orderId)
+        .query("SELECT TOP 1 Id, UserId, Total, PaymentStatus FROM Orders WHERE Id=@Id");
+      if (oRs.recordset.length) {
+        const order = oRs.recordset[0];
+        const isPaid = normStatus(order.PaymentStatus) === "paid";
+        const amountVnd = toVndInt(order.Total);
+        if (amountVnd === amountFromVnp) {
+          const txnRef = String(vnp_Params.vnp_TxnRef || "");
+          const txnNo  = String(vnp_Params.vnp_TransactionNo || "");
+          const txStatus = txStatusFromRsp(rspCode);
 
-          if (order.PaymentStatus !== "paid") {
-            // ghi log giao dịch nếu chưa có
-            await pool
-              .request()
-              .input("OrderId", sql.Int, orderId)
-              .input("UserId", sql.Int, order.UserId)
-              .input("Amount", sql.Decimal(10, 2), order.Total)
-              .input("PaymentMethod", sql.NVarChar, "VNPay")
-              .input("RspCode", sql.NVarChar, rspCode)
-              .input("CreatedAt", sql.DateTime, new Date())
-              .query(`
-                IF NOT EXISTS (SELECT 1 FROM Transactions WHERE OrderId=@OrderId)
-                INSERT INTO Transactions (OrderId, UserId, Amount, PaymentMethod, RspCode, CreatedAt)
-                VALUES (@OrderId, @UserId, @Amount, @PaymentMethod, @RspCode, @CreatedAt)
-              `);
+          await pool.request()
+            .input("OrderId", sql.Int, orderId)
+            .input("UserId", sql.Int, order.UserId)
+            .input("Amount", sql.Decimal(18,2), amountVnd)
+            .input("Provider", sql.NVarChar(20), PROVIDER)
+            .input("PaymentMethod", sql.NVarChar(20), 'VNPAY')
+            .input("TxnRef", sql.NVarChar(64), txnRef)
+            .input("TransactionNo", sql.NVarChar(64), txnNo || null)
+            .input("RspCode", sql.NVarChar(5), rspCode)
+            .input("Status", sql.NVarChar(20), txStatus)
+            .input("Raw", sql.NVarChar(sql.MAX), JSON.stringify(vnp_Params))
+            .query(`
+              IF NOT EXISTS (SELECT 1 FROM Transactions WHERE Provider=@Provider AND TxnRef=@TxnRef)
+              INSERT INTO Transactions (OrderId, UserId, Amount, Provider, PaymentMethod, TxnRef, TransactionNo, RspCode, Status, RawReturn, CreatedAt)
+              VALUES (@OrderId, @UserId, @Amount, @Provider, @PaymentMethod, @TxnRef, @TransactionNo, @RspCode, @Status, @Raw, SYSUTCDATETIME())
+              ELSE
+              UPDATE Transactions
+              SET TransactionNo = COALESCE(@TransactionNo, TransactionNo),
+                  RspCode       = @RspCode,
+                  Status        = @Status,
+                  RawReturn     = @Raw,
+                  PaymentMethod = @PaymentMethod
+              WHERE Provider=@Provider AND TxnRef=@TxnRef;
+            `);
 
+          if (!isPaid) {
             if (rspCode === "00") {
-              await pool
-                .request()
-                .input("Id", sql.Int, orderId)
-                .query(
-                  "UPDATE Orders SET PaymentStatus='paid', Status='confirmed', PaymentMethod='VNPay' WHERE Id=@Id"
-                );
+              await pool.request().input("Id", sql.Int, orderId).query(
+                "UPDATE Orders SET PaymentStatus='paid', Status='confirmed', PaymentMethod='VNPAY' WHERE Id=@Id"
+              );
             } else {
-              await pool
-                .request()
-                .input("Id", sql.Int, orderId)
-                .query(
-                  "UPDATE Orders SET PaymentStatus='failed', Status='cancelled', PaymentMethod='VNPay' WHERE Id=@Id"
-                );
+              await pool.request().input("Id", sql.Int, orderId).query(
+                "UPDATE Orders SET PaymentStatus='failed', Status='cancelled', PaymentMethod='VNPAY' WHERE Id=@Id"
+              );
             }
           }
         }
-      } catch (e) {
-        console.error("VNPay return dev-write error:", e.message);
       }
     }
 
     return res.json(payload);
   } catch (err) {
     console.error("VNPay return error:", err);
-    res.status(500).json({ error: "Lỗi callback VNPay!" });
+    if (process.env.NODE_ENV !== "production") {
+      return res.status(500).json({ success: false, error: { code: "INTERNAL", message: err.message } });
+    }
+    return res.status(500).json({ success: false, error: { code: "INTERNAL", message: "Lỗi callback VNPay!" } });
   }
 });
 
 /* ============================================================
-   4️⃣ VNPay IPN (Server xác nhận giao dịch) - Nguồn chân lý
-   ============================================================ */
+  3) VNPay IPN (Server xác nhận) — NGUỒN CHÂN LÝ
+  ============================================================ */
 router.get("/vnpay_ipn", async (req, res) => {
   try {
-    const inputData = {};
-    for (const key in req.query) {
-      if (key.startsWith("vnp_")) inputData[key] = req.query[key];
-    }
+    ensureHashOnly();
+
+    const inputData = pickVnp(req.query);
 
     const vnp_SecureHash = inputData.vnp_SecureHash;
     delete inputData.vnp_SecureHash;
@@ -232,69 +283,105 @@ router.get("/vnpay_ipn", async (req, res) => {
 
     const checkSum = vnpHash(inputData, process.env.VNPAY_HASH_SECRET);
 
-    const [orderIdStr] = (inputData.vnp_TxnRef || "").split("_");
-    const orderId = parseInt(orderIdStr, 10);
-    const rspCode = inputData.vnp_ResponseCode;
-
-    if (vnp_SecureHash !== checkSum)
+    if (!vnp_SecureHash || vnp_SecureHash !== checkSum) {
       return res.json({ RspCode: "97", Message: "Invalid signature" });
+    }
+
+    const [orderIdStr] = String(inputData.vnp_TxnRef || "").split("_");
+    const orderId = parseInt(orderIdStr, 10);
+    if (!Number.isInteger(orderId)) {
+      return res.json({ RspCode: "01", Message: "Order not found" });
+    }
+
+    const amountFromVnp = (Number(inputData.vnp_Amount) || 0) / 100;
+    const rspCode = String(inputData.vnp_ResponseCode || "");
+    const txnRef = String(inputData.vnp_TxnRef || "");
+    const txnNo  = String(inputData.vnp_TransactionNo || "");
 
     const pool = await poolPromise;
-    const orderRes = await pool
-      .request()
-      .input("Id", sql.Int, orderId)
-      .query("SELECT Id, PaymentStatus, UserId, Total FROM Orders WHERE Id=@Id");
 
-    if (!orderRes.recordset.length)
-      return res.json({ RspCode: "01", Message: "Order not found" });
+    // Transaction để idempotent an toàn
+    const tx = new sql.Transaction(pool);
+    await tx.begin();
+    try {
+      const reqTx = new sql.Request(tx);
 
-    const order = orderRes.recordset[0];
+      // Lấy đơn & kiểm tiền
+      const oRs = await reqTx.input("Id", sql.Int, orderId)
+        .query("SELECT TOP 1 Id, UserId, Total, PaymentStatus FROM Orders WHERE Id=@Id");
+      if (!oRs.recordset.length) {
+        await tx.rollback();
+        return res.json({ RspCode: "01", Message: "Order not found" });
+      }
 
-    // Idempotent: nếu đã paid thì trả về ok, tránh ghi trùng
-    if (order.PaymentStatus === "paid")
-      return res.json({ RspCode: "02", Message: "Order already confirmed" });
+      const order = oRs.recordset[0];
+      const isPaid = normStatus(order.PaymentStatus) === "paid";
+      const amountVnd = toVndInt(order.Total);
+      if (amountVnd !== amountFromVnp) {
+        await tx.rollback();
+        return res.json({ RspCode: "04", Message: "Invalid amount" });
+      }
 
-    // Ghi log giao dịch nếu chưa có
-    await pool
-      .request()
-      .input("OrderId", sql.Int, orderId)
-      .input("UserId", sql.Int, order.UserId)
-      .input("Amount", sql.Decimal(10, 2), order.Total)
-      .input("PaymentMethod", sql.NVarChar, "VNPay")
-      .input("RspCode", sql.NVarChar, rspCode)
-      .input("CreatedAt", sql.DateTime, new Date())
-      .query(`
-        IF NOT EXISTS (SELECT 1 FROM Transactions WHERE OrderId=@OrderId)
-        INSERT INTO Transactions (OrderId, UserId, Amount, PaymentMethod, RspCode, CreatedAt)
-        VALUES (@OrderId, @UserId, @Amount, @PaymentMethod, @RspCode, @CreatedAt)
-      `);
+      const txStatus = txStatusFromRsp(rspCode);
 
-    if (rspCode === "00") {
-      await pool
-        .request()
-        .input("Id", sql.Int, orderId)
-        .query(
-          "UPDATE Orders SET PaymentStatus='paid', Status='confirmed', PaymentMethod='VNPay' WHERE Id=@Id"
-        );
-      return res.json({ RspCode: "00", Message: "Confirm Success" });
-    } else {
-      await pool
-        .request()
-        .input("Id", sql.Int, orderId)
-        .query(
-          "UPDATE Orders SET PaymentStatus='failed', Status='cancelled', PaymentMethod='VNPay' WHERE Id=@Id"
-        );
-      return res.json({ RspCode: "04", Message: "Payment Failed" });
+      // Ghi giao dịch (idempotent theo Provider+TxnRef)
+      await reqTx
+        .input("OrderId", sql.Int, orderId)
+        .input("UserId", sql.Int, order.UserId)
+        .input("Amount", sql.Decimal(18,2), amountVnd)
+        .input("Provider", sql.NVarChar(20), PROVIDER)
+        .input("PaymentMethod", sql.NVarChar(20), 'VNPAY')
+        .input("TxnRef", sql.NVarChar(64), txnRef)
+        .input("TransactionNo", sql.NVarChar(64), txnNo || null)
+        .input("RspCode", sql.NVarChar(5), rspCode)
+        .input("Status", sql.NVarChar(20), txStatus)
+        .input("Raw", sql.NVarChar(sql.MAX), JSON.stringify(inputData))
+        .query(`
+          IF NOT EXISTS (SELECT 1 FROM Transactions WHERE Provider=@Provider AND TxnRef=@TxnRef)
+          INSERT INTO Transactions (OrderId, UserId, Amount, Provider, PaymentMethod, TxnRef, TransactionNo, RspCode, Status, RawIpn, CreatedAt)
+          VALUES (@OrderId, @UserId, @Amount, @Provider, @PaymentMethod, @TxnRef, @TransactionNo, @RspCode, @Status, @Raw, SYSUTCDATETIME())
+          ELSE
+          UPDATE Transactions
+          SET TransactionNo = COALESCE(@TransactionNo, TransactionNo),
+              RspCode       = @RspCode,
+              Status        = @Status,
+              RawIpn        = @Raw,
+              PaymentMethod = @PaymentMethod
+          WHERE Provider=@Provider AND TxnRef=@TxnRef;
+        `);
+
+      if (!isPaid) {
+        if (rspCode === "00") {
+          await reqTx.input("Id", sql.Int, orderId).query(
+            "UPDATE Orders SET PaymentStatus='paid', Status='confirmed', PaymentMethod='VNPAY' WHERE Id=@Id"
+          );
+          await tx.commit();
+          return res.json({ RspCode: "00", Message: "Confirm Success" });
+        } else {
+          await reqTx.input("Id", sql.Int, orderId).query(
+            "UPDATE Orders SET PaymentStatus='failed', Status='cancelled', PaymentMethod='VNPAY' WHERE Id=@Id"
+          );
+          await tx.commit();
+          return res.json({ RspCode: "04", Message: "Payment Failed" });
+        }
+      } else {
+        await tx.commit();
+        return res.json({ RspCode: "02", Message: "Order already confirmed" });
+      }
+    } catch (e) {
+      try { await tx.rollback(); } catch {}
+      console.error("VNPay IPN TX error:", e);
+      return res.json({ RspCode: "99", Message: "Unknown error" });
     }
   } catch (err) {
     console.error("VNPay IPN error:", err);
-    res.json({ RspCode: "99", Message: "Unknown error" });
+    return res.json({ RspCode: "99", Message: "Unknown error" });
   }
 });
 
 /* ============================================================
-   5️⃣ API Tiện ích cho FE & Admin
-   ============================================================ */
+  4) Tiện ích
+  ============================================================ */
 
 // Lịch sử giao dịch của user hiện tại
 router.get("/transactions", authenticateJWT, async (req, res) => {
@@ -303,129 +390,133 @@ router.get("/transactions", authenticateJWT, async (req, res) => {
     const result = await pool
       .request()
       .input("UserId", sql.Int, req.user.userId)
-      .query(
-        "SELECT * FROM Transactions WHERE UserId=@UserId ORDER BY CreatedAt DESC"
-      );
-    res.json(result.recordset);
+      .query(`
+        SELECT t.Id, t.OrderId, t.Amount, t.Provider, t.PaymentMethod, t.TxnRef, t.TransactionNo, t.RspCode, t.Status, t.CreatedAt
+        FROM Transactions t
+        WHERE t.UserId=@UserId
+        ORDER BY t.CreatedAt DESC
+      `);
+    return res.json({ success: true, data: result.recordset });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, error: { code: "INTERNAL", message: err.message } });
   }
 });
 
 // Toàn bộ giao dịch (Admin)
-router.get(
-  "/admin/transactions",
-  authenticateJWT,
-  authorizeAdmin,
-  async (req, res) => {
-    try {
-      const pool = await poolPromise;
-      const result = await pool.request().query(`
-        SELECT t.*, u.Name AS UserName
-        FROM Transactions t
-        LEFT JOIN Users u ON t.UserId = u.Id
-        ORDER BY t.CreatedAt DESC
-      `);
-      res.json(result.recordset);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+router.get("/admin/transactions", authenticateJWT, authorizeAdmin, async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT t.*, u.Name AS UserName
+      FROM Transactions t
+      LEFT JOIN Users u ON t.UserId = u.Id
+      ORDER BY t.CreatedAt DESC
+    `);
+    return res.json({ success: true, data: result.recordset });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: { code: "INTERNAL", message: err.message } });
   }
-);
+});
 
 // Xem chi tiết giao dịch/đơn của chính user
 router.get("/order/:id", authenticateJWT, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = Number(req.params.id);
     const pool = await poolPromise;
 
-    // Bảo vệ: chỉ lấy đơn thuộc user hiện tại
     const orderRes = await pool
       .request()
       .input("Id", sql.Int, id)
       .input("UserId", sql.Int, req.user.userId)
-      .query(
-        "SELECT Id, Status, PaymentStatus, Total, PaymentMethod, CreatedAt FROM Orders WHERE Id=@Id AND UserId=@UserId"
-      );
+      .query(`
+        SELECT TOP 1 Id, Status, PaymentStatus, Total, PaymentMethod, CreatedAt
+        FROM Orders
+        WHERE Id=@Id AND UserId=@UserId
+      `);
 
-    if (!orderRes.recordset.length)
-      return res.status(404).json({ error: "Không tìm thấy đơn hàng của bạn" });
+    if (!orderRes.recordset.length) {
+      return res.status(404).json({ success: false, error: { code: "ORDER_NOT_FOUND", message: "Không tìm thấy đơn hàng của bạn" } });
+    }
 
     const order = orderRes.recordset[0];
 
     const txRes = await pool
       .request()
       .input("OrderId", sql.Int, id)
-      .query(
-        "SELECT TOP 1 * FROM Transactions WHERE OrderId=@OrderId ORDER BY CreatedAt DESC"
-      );
+      .query(`
+        SELECT TOP 1 Id, Amount, Provider, PaymentMethod, TxnRef, TransactionNo, RspCode, Status, CreatedAt
+        FROM Transactions
+        WHERE OrderId=@OrderId
+        ORDER BY CreatedAt DESC
+      `);
 
     order.Transaction = txRes.recordset[0] || null;
-    res.json(order);
+    return res.json({ success: true, data: order });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, error: { code: "INTERNAL", message: err.message } });
   }
 });
 
 /* ============================================================
-   6️⃣ (DEV tiện lợi) Xác nhận thủ công khi không có IPN
-   ============================================================ */
+  5) (DEV) Xác nhận thủ công khi không có IPN
+  ============================================================ */
 router.post("/vnpay/dev/confirm", authenticateJWT, async (req, res) => {
   try {
-    if (!ALLOW_DEV_CONFIRM)
-      return res.status(403).json({ error: "Not allowed in production" });
+    if (!ALLOW_DEV_CONFIRM) {
+      return res.status(403).json({ success: false, error: { code: "FORBIDDEN", message: "Not allowed in production" } });
+    }
 
-    const { orderId } = req.body;
-    if (!orderId) return res.status(400).json({ error: "Thiếu orderId" });
+    const orderId = Number(req.body?.orderId);
+    if (!Number.isInteger(orderId)) {
+      return res.status(400).json({ success: false, error: { code: "BAD_REQUEST", message: "Thiếu/ sai orderId" } });
+    }
 
     const pool = await poolPromise;
 
-    // Chỉ xác nhận đơn thuộc user hiện tại (dev route dành cho user)
+    // Chỉ xác nhận đơn thuộc user hiện tại
     const orderRes = await pool
       .request()
       .input("Id", sql.Int, orderId)
       .input("UserId", sql.Int, req.user.userId)
-      .query(
-        "SELECT Id, PaymentStatus, UserId, Total FROM Orders WHERE Id=@Id AND UserId=@UserId"
-      );
+      .query("SELECT TOP 1 Id, PaymentStatus, UserId, Total FROM Orders WHERE Id=@Id AND UserId=@UserId");
 
-    if (!orderRes.recordset.length)
-      return res.status(404).json({ error: "Order not found or not owned by you" });
+    if (!orderRes.recordset.length) {
+      return res.status(404).json({ success: false, error: { code: "ORDER_NOT_FOUND", message: "Order not found or not owned by you" } });
+    }
 
     const order = orderRes.recordset[0];
+    const isPaid = normStatus(order.PaymentStatus) === "paid";
+    const amountVnd = toVndInt(order.Total);
 
-    if (order.PaymentStatus !== "paid") {
+    if (!isPaid) {
+      const txnRef = `${orderId}_${Date.now()}_DEV`;
+
       await pool
         .request()
         .input("OrderId", sql.Int, orderId)
         .input("UserId", sql.Int, order.UserId)
-        .input("Amount", sql.Decimal(10, 2), order.Total)
-        .input("PaymentMethod", sql.NVarChar, "VNPay")
-        .input("RspCode", sql.NVarChar, "00")
-        .input("CreatedAt", sql.DateTime, new Date())
+        .input("Amount", sql.Decimal(18,2), amountVnd)
+        .input("Provider", sql.NVarChar(20), PROVIDER)
+        .input("PaymentMethod", sql.NVarChar(20), 'VNPAY')
+        .input("TxnRef", sql.NVarChar(64), txnRef)
+        .input("TransactionNo", sql.NVarChar(64), null)
+        .input("RspCode", sql.NVarChar(5), "00")
+        .input("Status", sql.NVarChar(20), "success")
         .query(`
-          IF NOT EXISTS (SELECT 1 FROM Transactions WHERE OrderId=@OrderId)
-          INSERT INTO Transactions (OrderId, UserId, Amount, PaymentMethod, RspCode, CreatedAt)
-          VALUES (@OrderId, @UserId, @Amount, @PaymentMethod, @RspCode, @CreatedAt)
+          IF NOT EXISTS (SELECT 1 FROM Transactions WHERE Provider=@Provider AND TxnRef=@TxnRef)
+          INSERT INTO Transactions (OrderId, UserId, Amount, Provider, PaymentMethod, TxnRef, TransactionNo, RspCode, Status, CreatedAt)
+          VALUES (@OrderId, @UserId, @Amount, @Provider, @PaymentMethod, @TxnRef, @TransactionNo, @RspCode, @Status, SYSUTCDATETIME())
         `);
 
       await pool
         .request()
         .input("Id", sql.Int, orderId)
-        .query(
-          "UPDATE Orders SET PaymentStatus='paid', Status='confirmed', PaymentMethod='VNPay' WHERE Id=@Id"
-        );
+        .query("UPDATE Orders SET PaymentStatus='paid', Status='confirmed', PaymentMethod='VNPAY' WHERE Id=@Id");
     }
 
-    res.json({
-      status: "success",
-      orderId,
-      amount: Number(order.Total),
-      rspCode: "00",
-      dev: true,
-    });
+    return res.json({ success: true, data: { status: "success", orderId, amount: amountVnd, rspCode: "00", dev: true } });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, error: { code: "INTERNAL", message: err.message } });
   }
 });
 

@@ -1,3 +1,4 @@
+// routes/store.routes.js
 const express = require("express");
 const { sql, poolPromise } = require("../config/db");
 const { authenticateJWT, authorizeAdmin } = require("../middleware/auth.middleware");
@@ -11,7 +12,7 @@ const router = express.Router();
  * - radius: bán kính (km), nếu không truyền thì không lọc theo bán kính
  * - openOnly: 1/0 (mặc định 1), 1 = chỉ lấy cửa hàng đang mở
  */
-router.get("/near", async (req, res) => {
+router.get("/near", async (req, res, next) => {
   try {
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
@@ -23,7 +24,7 @@ router.get("/near", async (req, res) => {
     );
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return res.status(400).json({ error: "Thiếu hoặc sai lat/lng" });
+      return res.status(400).json({ success: false, error: { code: "BAD_REQUEST", message: "Thiếu hoặc sai lat/lng" } });
     }
 
     const pool = await poolPromise;
@@ -63,22 +64,18 @@ router.get("/near", async (req, res) => {
         CAST(DistanceMeters / 1000.0 AS DECIMAL(9,3)) AS DistanceKm
       FROM S
       ORDER BY
-        CASE
-          WHEN DistanceMeters IS NOT NULL THEN DistanceMeters
-          ELSE 1e15
-        END ASC,
+        CASE WHEN DistanceMeters IS NOT NULL THEN DistanceMeters ELSE 1e15 END ASC,
         Id ASC;
     `);
 
-    return res.json(recordset);
+    return res.json({ success: true, data: recordset });
   } catch (err) {
-    console.error("[stores.near] error:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-/** POST /api/stores/bulk-upsert (admin) – body: JSON array như SP ở phần A */
-router.post("/bulk-upsert", authenticateJWT, authorizeAdmin, async (req, res) => {
+/** POST /api/stores/bulk-upsert (admin) – body: JSON array of stores */
+router.post("/bulk-upsert", authenticateJWT, authorizeAdmin, async (req, res, next) => {
   try {
     const data = Array.isArray(req.body) ? req.body : [];
     const pool = await poolPromise;
@@ -87,10 +84,9 @@ router.post("/bulk-upsert", authenticateJWT, authorizeAdmin, async (req, res) =>
       .input("json", sql.NVarChar(sql.MAX), JSON.stringify(data))
       .execute("dbo.usp_Stores_BulkUpsertFromJson");
 
-    res.json({ message: "✅ Upsert stores OK", count: data.length });
+    res.json({ success: true, message: "Upsert stores OK", count: data.length });
   } catch (err) {
-    console.error("[stores.bulk-upsert] error:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
