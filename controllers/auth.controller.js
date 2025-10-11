@@ -21,62 +21,6 @@ class AuthController {
     }
   }
 
-  static async refresh(req, res) {
-    try {
-      const { refreshToken } = req.body;
-      const data = await AuthService.refreshToken(refreshToken);
-      res.json(data);
-    } catch (err) {
-      res.status(401).json({ error: err.message });
-    }
-  }
-
-  static async logout(req, res) {
-    try {
-      const { refreshToken } = req.body;
-      await AuthService.revokeRefreshToken(refreshToken);
-      res.json({ message: "Đã logout" });
-    } catch (err) {
-      res.status(400).json({ error: err.message });
-    }
-  }
-
-  // controllers/auth.controller.js
-  static async getProfile(req, res) {
-    try {
-      const user = await AuthService.getProfile(req.user.userId);
-      res.json(user);
-    } catch (err) {
-      res.status(400).json({ error: err.message });
-    }
-  }
-
-  // controllers/auth.controller.js
-  static async updateProfile(req, res) {
-    try {
-      const { Name, Phone } = req.body;
-      await AuthService.updateProfile(req.user.userId, { Name, Phone });
-      res.json({ message: "✅ Cập nhật hồ sơ thành công" });
-    } catch (err) {
-      res.status(400).json({ error: err.message });
-    }
-  }
-
-  // controllers/auth.controller.js
-  static async changePassword(req, res) {
-    try {
-      const { oldPassword, newPassword } = req.body;
-      await AuthService.changePassword(
-        req.user.userId,
-        oldPassword,
-        newPassword
-      );
-      res.json({ message: "✅ Đổi mật khẩu thành công" });
-    } catch (err) {
-      res.status(400).json({ error: err.message });
-    }
-  }
-
   static async loginWithGoogle(req, res) {
     try {
       const { idToken } = req.body;
@@ -107,5 +51,55 @@ class AuthController {
       res.status(400).json({ error: err.message });
     }
   }
+
+  static async refresh(req, res) {
+    try {
+      const { refreshToken } = req.body;
+      const data = await AuthService.refreshToken(refreshToken);
+      res.json(data);
+    } catch (err) {
+      res.status(401).json({ error: err.message });
+    }
+  }
+
+  static async logout(req, res) {
+    try {
+      const { refreshToken } = req.body;
+      await AuthService.revokeRefreshToken(refreshToken);
+      res.json({ message: "Đã logout" });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async getProfile(req, res) {
+    try {
+      const user = await AuthService.getProfile(req.user.userId);
+      res.json(user);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async updateProfile(req, res) {
+    try {
+      const { Name, Phone } = req.body;
+      await AuthService.updateProfile(req.user.userId, { Name, Phone });
+      res.json({ message: "✅ Cập nhật hồ sơ thành công" });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async changePassword(req, res) {
+    try {
+      const { oldPassword, newPassword } = req.body;
+      await AuthService.changePassword(req.user.userId, oldPassword, newPassword);
+      res.json({ message: "✅ Đổi mật khẩu thành công" });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
 }
+
 module.exports = AuthController;

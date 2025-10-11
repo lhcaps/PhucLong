@@ -1,8 +1,8 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const { sql, poolPromise } = require("../config/db");
-const { v4: uuidv4 } = require("uuid");
 const nodemailer = require("nodemailer");
+const { v4: uuidv4 } = require("uuid");
+const { sql, poolPromise } = require("../config/db");
 const { googleClient } = require("../config/google.config");
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
@@ -13,17 +13,16 @@ class AuthService {
   // ===== ĐĂNG KÝ =====
   static async register({ Name, Email, Phone, Password }) {
     const pool = await poolPromise;
-    const exists = await pool
-      .request()
-      .input("Email", sql.NVarChar, Email)
-      .query("SELECT Id FROM Users WHERE Email = @Email");
-    if (exists.recordset.length) throw new Error("Email đã tồn tại");
-    if (Password.length < 6) throw new Error("Mật khẩu phải ≥ 6 ký tự");
 
+    const exists = await pool.request()
+      .input("Email", sql.NVarChar, Email)
+      .query("SELECT Id FROM Users WHERE Email=@Email");
+    if (exists.recordset.length) throw new Error("Email đã tồn tại");
+
+    if (Password.length < 6) throw new Error("Mật khẩu phải ≥ 6 ký tự");
     const hash = await bcrypt.hash(Password, 10);
 
-    await pool
-      .request()
+    await pool.request()
       .input("Name", sql.NVarChar, Name)
       .input("Email", sql.NVarChar, Email)
       .input("Phone", sql.NVarChar, Phone)
@@ -39,8 +38,7 @@ class AuthService {
   // ===== ĐĂNG NHẬP =====
   static async login({ Email, Password }) {
     const pool = await poolPromise;
-    const res = await pool
-      .request()
+    const res = await pool.request()
       .input("Email", sql.NVarChar, Email)
       .query("SELECT * FROM Users WHERE Email=@Email");
 
@@ -60,25 +58,29 @@ class AuthService {
     });
 
     const payload = ticket.getPayload();
-    const { email, name } = payload;
-    const pool = await poolPromise;
+    const { sub, email, name, email_verified } = payload;
 
-    let userRes = await pool
-      .request()
+    if (!email_verified) throw new Error("Email Google chưa được xác minh");
+
+    const pool = await poolPromise;
+    let userRes = await pool.request()
       .input("Email", sql.NVarChar, email)
       .query("SELECT * FROM Users WHERE Email=@Email");
 
+    // Nếu chưa có user -> tạo mới
     if (!userRes.recordset.length) {
-      await pool
-        .request()
+      await pool.request()
         .input("Name", sql.NVarChar, name)
         .input("Email", sql.NVarChar, email)
+        .input("Role", sql.NVarChar, "customer")
+        .input("GoogleLinked", sql.Bit, 1)
+        .input("GoogleSub", sql.NVarChar, sub)
         .query(`
-          INSERT INTO Users (Name, Email, Role, GoogleLinked)
-          VALUES (@Name, @Email, 'customer', 1)
+          INSERT INTO Users (Name, Email, Role, GoogleLinked, GoogleSub)
+          VALUES (@Name, @Email, @Role, @GoogleLinked, @GoogleSub)
         `);
-      userRes = await pool
-        .request()
+
+      userRes = await pool.request()
         .input("Email", sql.NVarChar, email)
         .query("SELECT * FROM Users WHERE Email=@Email");
     }
@@ -87,145 +89,63 @@ class AuthService {
     return this._generateTokens(user);
   }
 
-  // ===== TOKEN =====
-  static async refreshToken(rawToken) {
-    const pool = await poolPromise;
-    const rows = await pool
-      .request()
-      .input("Now", sql.DateTime, new Date())
-      .query("SELECT * FROM RefreshTokens WHERE ExpiresAt > @Now");
-
-    for (const row of rows.recordset) {
-      const match = await bcrypt.compare(rawToken, row.TokenHash);
-      if (match) {
-        const userRes = await pool
-          .request()
-          .input("UserId", sql.Int, row.UserId)
-          .query("SELECT Id, Name, Email, Role FROM Users WHERE Id = @UserId");
-        const user = userRes.recordset[0];
-        return this._generateTokens(user, false);
-      }
-    }
-    throw new Error("Refresh token không hợp lệ");
-  }
-
-  static async revokeRefreshToken(rawToken) {
-    const pool = await poolPromise;
-    const rows = await pool
-      .request()
-      .input("Now", sql.DateTime, new Date())
-      .query("SELECT * FROM RefreshTokens WHERE ExpiresAt > @Now");
-
-    for (const row of rows.recordset) {
-      const match = await bcrypt.compare(rawToken, row.TokenHash);
-      if (match) {
-        await pool.request().input("Id", sql.Int, row.Id).query("DELETE FROM RefreshTokens WHERE Id = @Id");
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // ===== PROFILE =====
-  static async getProfile(userId) {
-    const pool = await poolPromise;
-    const result = await pool
-      .request()
-      .input("Id", sql.Int, userId)
-      .query("SELECT Id, Name, Email, Role, LoyaltyPoints, Phone, GoogleLinked FROM Users WHERE Id=@Id");
-    if (!result.recordset.length) throw new Error("User không tồn tại");
-    return result.recordset[0];
-  }
-
-  static async updateProfile(userId, { Name, Phone }) {
-    const pool = await poolPromise;
-    await pool
-      .request()
-      .input("Id", sql.Int, userId)
-      .input("Name", sql.NVarChar, Name)
-      .input("Phone", sql.NVarChar, Phone)
-      .query("UPDATE Users SET Name=@Name, Phone=@Phone WHERE Id=@Id");
-    return { message: "✅ Cập nhật hồ sơ thành công" };
-  }
-
-  static async changePassword(userId, oldPassword, newPassword) {
-    const pool = await poolPromise;
-    const res = await pool.request().input("Id", sql.Int, userId).query("SELECT PasswordHash FROM Users WHERE Id=@Id");
-    if (!res.recordset.length) throw new Error("User không tồn tại");
-    const user = res.recordset[0];
-
-    const match = await bcrypt.compare(oldPassword, user.PasswordHash);
-    if (!match) throw new Error("Mật khẩu cũ không đúng");
-    if (newPassword.length < 6) throw new Error("Mật khẩu mới phải ≥ 6 ký tự");
-
-    const hash = await bcrypt.hash(newPassword, 10);
-    await pool.request().input("Id", sql.Int, userId).input("PasswordHash", sql.NVarChar, hash)
-      .query("UPDATE Users SET PasswordHash=@PasswordHash WHERE Id=@Id");
-
-    return { message: "✅ Đổi mật khẩu thành công" };
-  }
-
   // ===== FORGOT PASSWORD =====
   static async forgotPassword(email) {
     const pool = await poolPromise;
-    const res = await pool
-      .request()
+    const res = await pool.request()
       .input("Email", sql.NVarChar, email)
-      .query("SELECT Id, Name, GoogleLinked FROM Users WHERE Email=@Email");
+      .query("SELECT Id, Name FROM Users WHERE Email=@Email");
 
-    if (!res.recordset.length) throw new Error("Không tìm thấy email");
+    const msg = "Nếu email hợp lệ, chúng tôi đã gửi hướng dẫn khôi phục.";
+    if (!res.recordset.length) return msg;
+
     const user = res.recordset[0];
-
-    // Nếu là tài khoản Google-linked
-    if (user.GoogleLinked) {
-      await this._sendMail(email, "🔑 Đặt lại mật khẩu Google", `
-        Xin chào ${user.Name},<br/>
-        Tài khoản của bạn đăng nhập bằng Google.<br/>
-        Hãy thay đổi mật khẩu tại: <a href="https://myaccount.google.com/security">Trang bảo mật Google</a>.
-      `);
-      return "Email hướng dẫn đã được gửi đến tài khoản Google.";
-    }
-
-    // Nếu là local account
     const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "15m" });
     const expiry = new Date(Date.now() + 15 * 60 * 1000);
+    const tokenHash = await bcrypt.hash(token, 10);
 
-    await pool
-      .request()
+    await pool.request()
       .input("Email", sql.NVarChar, email)
-      .input("Token", sql.NVarChar, token)
-      .input("Expiry", sql.DateTime, expiry)
-      .query("UPDATE Users SET ResetToken=@Token, ResetTokenExpiry=@Expiry WHERE Email=@Email");
+      .input("ResetTokenHash", sql.NVarChar, tokenHash)
+      .input("ResetTokenExpiry", sql.DateTime, expiry)
+      .query(`
+        UPDATE Users SET ResetTokenHash=@ResetTokenHash, ResetTokenExpiry=@ResetTokenExpiry WHERE Email=@Email
+      `);
 
-    const link = `${process.env.FRONTEND_URL}/reset-password/${token}`;
-    await this._sendMail(email, "🔑 Đặt lại mật khẩu", `
+    const link = `${process.env.FRONTEND_URL}/reset-password/${encodeURIComponent(token)}`;
+    await this._sendMail(email, "🔑 Đặt lại mật khẩu tài khoản PhucLong", `
       Xin chào ${user.Name},<br/>
-      Nhấn vào link sau để đặt lại mật khẩu (hết hạn sau 15 phút):<br/>
+      Bạn đã yêu cầu đặt lại mật khẩu cho tài khoản PhucLong.<br/>
+      Nhấn vào liên kết bên dưới để đặt lại (hết hạn sau 15 phút):<br/>
       <a href="${link}">${link}</a>
     `);
 
-    return "Email đặt lại mật khẩu đã được gửi.";
+    return msg;
   }
 
+  // ===== RESET PASSWORD =====
   static async resetPassword(token, newPassword) {
     try {
       const { email } = jwt.verify(token, JWT_SECRET);
       const pool = await poolPromise;
-      const res = await pool
-        .request()
+      const res = await pool.request()
         .input("Email", sql.NVarChar, email)
-        .query("SELECT ResetTokenExpiry FROM Users WHERE Email=@Email");
+        .query("SELECT ResetTokenHash, ResetTokenExpiry FROM Users WHERE Email=@Email");
 
       if (!res.recordset.length) throw new Error("Email không tồn tại");
-      const { ResetTokenExpiry } = res.recordset[0];
-      if (new Date(ResetTokenExpiry) < new Date()) throw new Error("Token đã hết hạn");
+      const { ResetTokenHash, ResetTokenExpiry } = res.recordset[0];
+      if (new Date(ResetTokenExpiry) < new Date()) throw new Error("Link đã hết hạn");
+
+      const valid = await bcrypt.compare(token, ResetTokenHash);
+      if (!valid) throw new Error("Link không hợp lệ");
 
       const hash = await bcrypt.hash(newPassword, 10);
-      await pool
-        .request()
+      await pool.request()
         .input("Email", sql.NVarChar, email)
         .input("PasswordHash", sql.NVarChar, hash)
-        .query("UPDATE Users SET PasswordHash=@PasswordHash, ResetToken=NULL, ResetTokenExpiry=NULL WHERE Email=@Email");
+        .query(`
+          UPDATE Users SET PasswordHash=@PasswordHash, ResetTokenHash=NULL, ResetTokenExpiry=NULL WHERE Email=@Email
+        `);
 
       return "✅ Đặt lại mật khẩu thành công!";
     } catch (err) {
@@ -233,7 +153,7 @@ class AuthService {
     }
   }
 
-  // ===== UTILS =====
+  // ===== TOKEN =====
   static async _generateTokens(user, includeRefresh = true) {
     const payload = { userId: user.Id, role: user.Role, email: user.Email };
     const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
@@ -243,14 +163,16 @@ class AuthService {
     const pool = await poolPromise;
     const rawRefreshToken = uuidv4() + "." + uuidv4();
     const refreshHash = await bcrypt.hash(rawRefreshToken, 10);
-    const expiresAt = new Date(Date.now() + REFRESH_DAYS * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + REFRESH_DAYS * 86400000);
 
-    await pool
-      .request()
+    await pool.request()
       .input("UserId", sql.Int, user.Id)
       .input("TokenHash", sql.NVarChar, refreshHash)
       .input("ExpiresAt", sql.DateTime, expiresAt)
-      .query("INSERT INTO RefreshTokens (UserId, TokenHash, ExpiresAt) VALUES (@UserId, @TokenHash, @ExpiresAt)");
+      .query(`
+        INSERT INTO RefreshTokens (UserId, TokenHash, ExpiresAt)
+        VALUES (@UserId, @TokenHash, @ExpiresAt)
+      `);
 
     return {
       accessToken,
@@ -265,12 +187,22 @@ class AuthService {
     };
   }
 
+  // ===== GỬI EMAIL =====
   static async _sendMail(to, subject, html) {
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS },
+      auth: {
+        user: process.env.MAIL_USER,
+        pass: process.env.MAIL_PASS,
+      },
     });
-    await transporter.sendMail({ from: `"PhucLong Support" <${process.env.MAIL_USER}>`, to, subject, html });
+
+    await transporter.sendMail({
+      from: `"PhucLong Support" <${process.env.MAIL_USER}>`,
+      to,
+      subject,
+      html,
+    });
   }
 }
 

@@ -1,21 +1,30 @@
 const rateLimit = require("express-rate-limit");
 
-// ⚙️ Giới hạn chung cho mọi API
+// Giới hạn chung
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 phút
-  max: 500, // tối đa 500 request/15 phút
+  windowMs: 15 * 60 * 1000,
+  max: 500,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "⏳ Too many requests, try again later." },
 });
 
-// ⚙️ Login limiter (cho phép nhiều hơn khi dev)
+// Login limiter
 const loginLimiter = rateLimit({
-  windowMs: 60 * 1000, // reset mỗi 1 phút
-  max: 20, // 20 lần/phút thay vì 5 lần/15 phút
+  windowMs: 60 * 1000,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "🚫 Too many login attempts, please wait a moment." },
 });
 
-module.exports = { apiLimiter, loginLimiter };
+// Forgot password limiter (chặt hơn)
+const forgotLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "🚫 Too many reset requests. Try again later." },
+});
+
+module.exports = { apiLimiter, loginLimiter, forgotLimiter };
