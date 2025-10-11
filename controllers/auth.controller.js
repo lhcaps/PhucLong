@@ -76,5 +76,36 @@ class AuthController {
       res.status(400).json({ error: err.message });
     }
   }
+
+  static async loginWithGoogle(req, res) {
+    try {
+      const { idToken } = req.body;
+      const data = await AuthService.loginWithGoogle(idToken);
+      res.json(data);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async forgotPassword(req, res) {
+    try {
+      const { email } = req.body;
+      const msg = await AuthService.forgotPassword(email);
+      res.json({ message: msg });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async resetPassword(req, res) {
+    try {
+      const { token } = req.params;
+      const { newPassword } = req.body;
+      const msg = await AuthService.resetPassword(token, newPassword);
+      res.json({ message: msg });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
 }
 module.exports = AuthController;
