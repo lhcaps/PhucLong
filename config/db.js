@@ -5,7 +5,7 @@ const sql = require('mssql');
 const config = {
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  server: process.env.DB_SERVER || 'localhost',
+  server: process.env.DB_SERVER || 'localhost\SQLEXPRESS',
   database: process.env.DB_NAME || 'PhucLongCNPMNC', // ⚙️ cập nhật đúng DB mới
   port: process.env.DB_PORT ? parseInt(process.env.DB_PORT) : undefined,
   options: {
