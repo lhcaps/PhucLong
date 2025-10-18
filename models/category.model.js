@@ -1,15 +1,16 @@
 // src/models/category.model.js
-const { sql, poolPromise } = require("../config/db");
+const { sql, getPool } = require("../config/db");
+
 
 class CategoryModel {
   static async getAll() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool.request().query("SELECT * FROM Categories ORDER BY Name ASC");
     return res.recordset;
   }
 
   static async getById(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool
       .request()
       .input("Id", sql.Int, id)
@@ -18,7 +19,7 @@ class CategoryModel {
   }
 
   static async create(name) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool
       .request()
       .input("Name", sql.NVarChar, name)
@@ -31,7 +32,7 @@ class CategoryModel {
   }
 
   static async update(id, name) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool
       .request()
       .input("Id", sql.Int, id)
@@ -46,7 +47,7 @@ class CategoryModel {
   }
 
   static async delete(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request().input("Id", sql.Int, id).query("DELETE FROM Categories WHERE Id=@Id");
   }
 }

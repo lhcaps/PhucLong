@@ -2,8 +2,7 @@
 const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 const bcrypt = require("bcrypt");
-const { sql, poolPromise } = require("../config/db");
-
+const { sql, getPool } = require("../config/db");
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "15m";
 const REFRESH_DAYS = parseInt(process.env.REFRESH_TOKEN_EXPIRES_DAYS || "7", 10);
@@ -22,7 +21,7 @@ const TokenService = {
     const hash = await bcrypt.hash(rawToken, 10);
     const expiresAt = new Date(Date.now() + REFRESH_DAYS * 86400000);
 
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("UserId", sql.Int, userId)
       .input("TokenHash", sql.NVarChar, hash)
@@ -36,7 +35,7 @@ const TokenService = {
   },
 
   async verifyRefreshToken(token) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const tokens = await pool.request()
       .query("SELECT UserId, TokenHash, ExpiresAt FROM RefreshTokens");
 
@@ -48,7 +47,7 @@ const TokenService = {
   },
 
   async revokeRefreshToken(token) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const tokens = await pool.request().query("SELECT TokenHash FROM RefreshTokens");
     for (const row of tokens.recordset) {
       const valid = await bcrypt.compare(token, row.TokenHash);
@@ -62,7 +61,7 @@ const TokenService = {
   },
 
   async revokeAllUserTokens(userId) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request().input("UserId", sql.Int, userId)
       .query("DELETE FROM RefreshTokens WHERE UserId=@UserId");
   }

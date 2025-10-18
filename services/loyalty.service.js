@@ -1,10 +1,11 @@
 // services/loyalty.service.js
-const { sql, poolPromise } = require("../config/db");
+const { sql, getPool } = require("../config/db");
+
 
 class LoyaltyService {
   // ✅ Lấy điểm hiện tại
   static async getPoints(userId) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request()
       .input("Id", sql.Int, userId)
       .query("SELECT LoyaltyPoints FROM Users WHERE Id=@Id");
@@ -14,7 +15,7 @@ class LoyaltyService {
   // ✅ Cộng điểm (tự động khi đơn hàng hoàn tất)
   static async addPoints(userId, amount, orderId = null) {
     const points = Math.floor(amount / 1000); // 1k = 1 point
-    const pool = await poolPromise;
+    const pool = await getPool();
 
     await pool.request()
       .input("Id", sql.Int, userId)
@@ -36,7 +37,7 @@ class LoyaltyService {
 
   // ✅ Đổi điểm lấy voucher (voucher chuẩn mới)
   static async redeemVoucher(userId, requiredPoints, discountPercent) {
-    const pool = await poolPromise;
+    const pool = await getPool();
 
     // Kiểm tra điểm
     const userRes = await pool.request()
@@ -85,7 +86,7 @@ class LoyaltyService {
 
   // ✅ Lịch sử giao dịch loyalty (Admin/User)
   static async getAllTransactions(userId = null) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     let query = `
       SELECT lt.Id, lt.UserId, u.Name AS UserName, lt.OrderId,
              lt.Points, lt.Note, lt.CreatedAt

@@ -1,10 +1,11 @@
 // services/voucher.service.js
-const { sql, poolPromise } = require("../config/db");
+const { sql, getPool } = require("../config/db");
+
 
 class VoucherService {
   // ✅ Kiểm tra voucher có hợp lệ cho đơn hàng
   static async preview(code, orderId) {
-    const pool = await poolPromise;
+    const pool = await getPool();
 
     // Lấy thông tin voucher + order
     const result = await pool
@@ -62,7 +63,7 @@ class VoucherService {
 
   // ✅ Xác nhận sử dụng voucher
   static async confirm(code, orderId, userId = null) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const tx = new sql.Transaction(await poolPromise);
     await tx.begin();
 

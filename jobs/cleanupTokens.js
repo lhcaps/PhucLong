@@ -1,10 +1,11 @@
 const cron = require("node-cron");
-const { sql, poolPromise } = require("../config/db");
+const { sql, getPool } = require("../config/db");
+
 
 // Chạy 3h sáng mỗi ngày
 cron.schedule("0 3 * * *", async () => {
   try {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request()
       .input("Now", sql.DateTime, new Date())
       .query("DELETE FROM RefreshTokens WHERE ExpiresAt < @Now");

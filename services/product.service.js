@@ -1,10 +1,10 @@
-const { sql, poolPromise } = require("../config/db");
+const { sql, getPool } = require("../config/db");
 const Product = require("../models/product.model");
 
 class ProductService {
   static async getAll(filters = {}) {
     const { categoryId, sort, bestseller } = filters;
-    const pool = await poolPromise;
+    const pool = await getPool();
 
     let query = "SELECT * FROM Products WHERE 1=1";
     if (categoryId) query += " AND CategoryId=@CategoryId";
@@ -23,7 +23,7 @@ class ProductService {
   }
 
   static async getById(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool
       .request()
       .input("Id", sql.Int, id)
@@ -32,7 +32,7 @@ class ProductService {
   }
 
   static async create(data) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool
       .request()
       .input("Name", sql.NVarChar, data.Name)
@@ -48,7 +48,7 @@ class ProductService {
   }
 
   static async update(id, data) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool
       .request()
       .input("Id", sql.Int, id)
@@ -66,7 +66,7 @@ class ProductService {
   }
 
   static async delete(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool
       .request()
       .input("Id", sql.Int, id)

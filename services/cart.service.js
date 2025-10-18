@@ -1,53 +1,54 @@
-const { sql, poolPromise } = require('../config/db');
+// ======================================================
+// 🛒 Cart Service — Phúc Long CNPMNC
+// ------------------------------------------------------
+// Tính năng: lấy giỏ, thêm (insert/update), cập nhật, xóa
+// ======================================================
+
+const { sql, getPool } = require("../config/db");
 
 class CartService {
-  // Lấy giỏ hàng
   static async getCart(userId) {
-    const pool = await poolPromise;
-    const result = await pool.request()
+    const pool = await getPool();
+    const result = await pool
+      .request()
       .input("UserId", sql.Int, userId)
       .query(`
         SELECT c.Id, c.ProductId, p.Name, p.Price, c.Quantity, c.Size, c.Sugar, c.Ice, c.Topping,
-               (p.Price * c.Quantity) as Subtotal
+               (p.Price * c.Quantity) AS Subtotal
         FROM CartItems c
         JOIN Products p ON c.ProductId = p.Id
         WHERE c.UserId = @UserId
+        ORDER BY c.CreatedAt DESC, c.Id DESC
       `);
+
     const items = result.recordset;
     const total = items.reduce((sum, i) => sum + Number(i.Subtotal), 0);
     return { items, total };
   }
 
-  // ✅ Thêm sản phẩm vào giỏ (đã normalize Sugar/Ice)
-  static async addItem(userId, productId, quantity, size, sugar, ice, topping) {
-    const pool = await poolPromise;
+  static async addItem(userId, { productId, quantity, size, sugar, ice, topping }) {
+    if (!productId || !quantity) throw new Error("Thiếu productId hoặc quantity");
+    const pool = await getPool();
 
-    // Check sản phẩm tồn tại
-    const product = await pool.request()
+    const check = await pool
+      .request()
       .input("Id", sql.Int, productId)
       .query("SELECT Id FROM Products WHERE Id=@Id");
-    if (!product.recordset.length) throw new Error("Sản phẩm không tồn tại");
+    if (!check.recordset.length) throw new Error(`❌ Sản phẩm Id=${productId} không tồn tại`);
 
-    // ✅ Normalize và validate Sugar/Ice
-    const ALLOWED = ["0", "30", "50", "70", "100"];
-    let sugarNorm = sugar == null ? null : String(sugar).replace("%", "").trim();
-    let iceNorm = ice == null ? null : String(ice).replace("%", "").trim();
+    const normalize = (v) => (v ? String(v).replace("%", "").trim() : null);
+    const normSugar = normalize(sugar);
+    const normIce = normalize(ice);
+    const toppingText = Array.isArray(topping) ? topping.join(", ") : topping || null;
 
-    if (sugarNorm && !ALLOWED.includes(sugarNorm)) {
-      throw new Error("Sugar không hợp lệ. Chỉ chấp nhận: 0, 30, 50, 70, 100");
-    }
-    if (iceNorm && !ALLOWED.includes(iceNorm)) {
-      throw new Error("Ice không hợp lệ. Chỉ chấp nhận: 0, 30, 50, 70, 100");
-    }
-
-    // Nếu đã có cùng sản phẩm + option thì update số lượng
-    const exists = await pool.request()
+    const exists = await pool
+      .request()
       .input("UserId", sql.Int, userId)
       .input("ProductId", sql.Int, productId)
       .input("Size", sql.NVarChar, size || null)
-      .input("Sugar", sql.NVarChar, sugarNorm || null)
-      .input("Ice", sql.NVarChar, iceNorm || null)
-      .input("Topping", sql.NVarChar, topping || null)
+      .input("Sugar", sql.NVarChar, normSugar)
+      .input("Ice", sql.NVarChar, normIce)
+      .input("Topping", sql.NVarChar, toppingText)
       .query(`
         SELECT Id, Quantity FROM CartItems
         WHERE UserId=@UserId AND ProductId=@ProductId
@@ -59,52 +60,59 @@ class CartService {
 
     if (exists.recordset.length) {
       const newQty = exists.recordset[0].Quantity + quantity;
-      await pool.request()
+      await pool
+        .request()
         .input("Id", sql.Int, exists.recordset[0].Id)
         .input("Quantity", sql.Int, newQty)
         .query("UPDATE CartItems SET Quantity=@Quantity WHERE Id=@Id");
-    } else {
-      await pool.request()
-        .input("UserId", sql.Int, userId)
-        .input("ProductId", sql.Int, productId)
-        .input("Quantity", sql.Int, quantity)
-        .input("Size", sql.NVarChar, size || null)
-        .input("Sugar", sql.NVarChar, sugarNorm || null)
-        .input("Ice", sql.NVarChar, iceNorm || null)
-        .input("Topping", sql.NVarChar, topping || null)
-        .query(`
-          INSERT INTO CartItems (UserId, ProductId, Quantity, Size, Sugar, Ice, Topping)
-          VALUES (@UserId, @ProductId, @Quantity, @Size, @Sugar, @Ice, @Topping)
-        `);
+      return { ok: true, message: "Đã tăng số lượng sản phẩm trong giỏ" };
     }
 
-    return { message: "✅ Đã thêm vào giỏ" };
+    const insert = await pool
+      .request()
+      .input("UserId", sql.Int, userId)
+      .input("ProductId", sql.Int, productId)
+      .input("Quantity", sql.Int, quantity)
+      .input("Size", sql.NVarChar, size || null)
+      .input("Sugar", sql.NVarChar, normSugar)
+      .input("Ice", sql.NVarChar, normIce)
+      .input("Topping", sql.NVarChar, toppingText)
+      .query(`
+        INSERT INTO CartItems (UserId, ProductId, Quantity, Size, Sugar, Ice, Topping)
+        OUTPUT INSERTED.Id
+        VALUES (@UserId, @ProductId, @Quantity, @Size, @Sugar, @Ice, @Topping)
+      `);
+
+    return { ok: true, message: "Đã thêm vào giỏ hàng", id: insert.recordset[0]?.Id };
   }
 
-  // Cập nhật số lượng
   static async updateItem(userId, itemId, quantity) {
     if (quantity <= 0) throw new Error("Số lượng phải lớn hơn 0");
-    const pool = await poolPromise;
-    const result = await pool.request()
+    const pool = await getPool();
+
+    const result = await pool
+      .request()
       .input("Id", sql.Int, itemId)
       .input("UserId", sql.Int, userId)
       .input("Quantity", sql.Int, quantity)
       .query("UPDATE CartItems SET Quantity=@Quantity WHERE Id=@Id AND UserId=@UserId");
 
-    if (result.rowsAffected[0] === 0)
+    if ((result.rowsAffected?.[0] || 0) === 0)
       throw new Error("Không tìm thấy sản phẩm trong giỏ");
-
-    return { message: "✅ Đã cập nhật số lượng" };
+    return { ok: true, message: "Cập nhật thành công" };
   }
 
-  // Xóa sản phẩm khỏi giỏ
   static async removeItem(userId, itemId) {
-    const pool = await poolPromise;
-    await pool.request()
+    const pool = await getPool();
+    const del = await pool
+      .request()
       .input("Id", sql.Int, itemId)
       .input("UserId", sql.Int, userId)
       .query("DELETE FROM CartItems WHERE Id=@Id AND UserId=@UserId");
-    return { message: "🗑️ Đã xóa sản phẩm khỏi giỏ" };
+
+    if ((del.rowsAffected?.[0] || 0) === 0)
+      throw new Error("Không tìm thấy sản phẩm để xóa");
+    return { ok: true, message: "Đã xóa sản phẩm khỏi giỏ" };
   }
 }
 

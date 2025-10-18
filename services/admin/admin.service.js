@@ -3,14 +3,14 @@ const { sql, poolPromise } = require('../../config/db');
 class AdminService {
   // Users
   static async getAllUsers() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request()
       .query('SELECT Id, Name, Email, Role, LoyaltyPoints, CreatedAt FROM Users');
     return result.recordset;
   }
 
   static async updateUserRole(userId, role) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input('Id', sql.Int, userId)
       .input('Role', sql.NVarChar, role)
@@ -19,7 +19,7 @@ class AdminService {
   }
 
   static async deleteUser(userId) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input('Id', sql.Int, userId)
       .query('DELETE FROM Users WHERE Id=@Id');
@@ -28,7 +28,7 @@ class AdminService {
 
   // Orders
   static async getAllOrders() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request()
       .query('SELECT * FROM Orders ORDER BY CreatedAt DESC');
     return result.recordset;
@@ -38,7 +38,7 @@ class AdminService {
     const valid = ['pending', 'confirmed', 'processing', 'completed', 'cancelled'];
     if (!valid.includes(status)) throw new Error('Trạng thái không hợp lệ');
 
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input('Id', sql.Int, orderId)
       .input('Status', sql.NVarChar, status)
@@ -48,7 +48,7 @@ class AdminService {
 
   // Inventory
   static async updateStock(productId, stock) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input('Id', sql.Int, productId)
       .input('Stock', sql.Int, stock)

@@ -1,12 +1,11 @@
 // services/store.service.js
-const { sql, poolPromise } = require("../config/db");
-
+const { sql, getPool } = require("../config/db");
 class StoreService {
   static async nearest({ lat, lng, limit = 5, radius = null, openOnly = 1 }) {
     if (lat == null || lng == null) throw new Error("LAT_LNG_REQUIRED");
     limit = Math.min(Math.max(Number(limit) || 5, 1), 20);
 
-    const pool = await poolPromise;
+    const pool = await getPool();
     const req = pool.request()
       .input("Lat", sql.Decimal(10, 6), lat)
       .input("Lng", sql.Decimal(10, 6), lng)
@@ -42,7 +41,7 @@ class StoreService {
   }
 
   static async bulkUpsert(jsonArray) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const data = Array.isArray(jsonArray) ? jsonArray : [];
     await pool.request()
       .input("json", sql.NVarChar(sql.MAX), JSON.stringify(data))

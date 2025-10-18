@@ -4,7 +4,7 @@ const { sql, poolPromise } = require("../../config/db");
 class AdminReviewService {
   // ✅ Danh sách tất cả review (kèm thông tin user & sản phẩm)
   static async getAll() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request().query(`
       SELECT 
         pr.Id, pr.ProductId, p.Name AS ProductName,
@@ -21,7 +21,7 @@ class AdminReviewService {
 
   // ✅ Cập nhật review (Admin có thể sửa rating/comment/visibility)
   static async update(id, data) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const req = pool.request().input("Id", sql.Int, id);
 
     const set = [];
@@ -64,7 +64,7 @@ class AdminReviewService {
 
   // ✅ Ẩn/hiện nhanh review
   static async toggleVisibility(id, visible) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Id", sql.Int, id)
       .input("IsVisible", sql.Bit, visible ? 1 : 0)
@@ -78,7 +78,7 @@ class AdminReviewService {
 
   // ✅ Xoá review
   static async delete(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request().input("Id", sql.Int, id)
       .query("DELETE FROM ProductReviews WHERE Id=@Id");
     return { ok: result.rowsAffected[0] > 0 };
@@ -86,7 +86,7 @@ class AdminReviewService {
 
   // ✅ Thống kê tổng quan review (dashboard)
   static async getStats() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request().query(`
       SELECT 
         COUNT(*) AS TotalReviews,
@@ -99,7 +99,7 @@ class AdminReviewService {
 
   // ✅ Thống kê top sản phẩm được đánh giá cao nhất
   static async topRatedProducts(limit = 5) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request()
       .input("TopN", sql.Int, limit)
       .query(`

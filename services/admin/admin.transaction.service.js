@@ -4,7 +4,7 @@ const { sql, poolPromise } = require("../../config/db");
 class AdminTransactionService {
   // ✅ Danh sách tất cả giao dịch
   static async getAll(filters = {}) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const { provider, status, userId, orderId } = filters;
 
     let query = `
@@ -44,7 +44,7 @@ class AdminTransactionService {
 
   // ✅ Xem chi tiết 1 giao dịch
   static async getById(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request()
       .input("Id", sql.Int, id)
       .query(`
@@ -66,7 +66,7 @@ class AdminTransactionService {
 
   // ✅ Thống kê doanh thu (tổng, theo ngày, theo provider)
   static async getStats() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request().query(`
       SELECT 
         COUNT(*) AS TotalTransactions,

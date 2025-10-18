@@ -91,6 +91,7 @@ app.use("/api/cart", authenticateJWT, require("./routes/cart.routes"));
 app.use("/api/orders", authenticateJWT, require("./routes/order.routes"));
 app.use("/api/loyalty", authenticateJWT, require("./routes/loyalty.routes"));
 app.use("/api/history", authenticateJWT, require("./routes/orderHistory.routes"));
+app.use("/api/cart", authenticateJWT, require("./routes/cart.routes"));
 
 // ⭐ Reviews (đánh giá sản phẩm)
 app.use("/api/reviews", authenticateJWT, require("./routes/review.routes"));

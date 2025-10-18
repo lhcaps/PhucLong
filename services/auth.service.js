@@ -3,7 +3,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 const dayjs = require("dayjs");
-const { sql, poolPromise } = require("../config/db");
+const { sql, getPool } = require("../config/db");
 const UserModel = require("../models/user.model");
 const EmailService = require("./email.service");
 const TokenService = require("./token.service");
@@ -12,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
 
 class AuthService {
   static async register({ Name, Email, Phone, Password }) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const existing = await UserModel.findByEmail(Email);
     if (existing) throw new Error("Email đã tồn tại");
 
@@ -55,7 +55,7 @@ class AuthService {
 
     const resetToken = uuidv4();
     const expires = dayjs().add(15, "minute").toDate();
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Id", sql.Int, user.Id)
       .input("ResetToken", sql.NVarChar, resetToken)
@@ -69,7 +69,7 @@ class AuthService {
   }
 
   static async resetPassword(token, newPassword) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const now = new Date();
     const res = await pool.request()
       .input("Token", sql.NVarChar, token)
@@ -107,7 +107,7 @@ class AuthService {
   }
 
   static async updateProfile(userId, { Name, Phone }) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Id", sql.Int, userId)
       .input("Name", sql.NVarChar, Name)
@@ -121,7 +121,7 @@ class AuthService {
     if (!match) throw new Error("Mật khẩu cũ không đúng");
 
     const hash = await bcrypt.hash(newPassword, 10);
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Id", sql.Int, userId)
       .input("PasswordHash", sql.NVarChar, hash)

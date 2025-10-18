@@ -1,5 +1,6 @@
 // models/ProductReview.js
-const { sql, poolPromise } = require("../config/db");
+const { sql, getPool } = require("../config/db");
+
 
 /**
  * Model tiện ích thao tác trực tiếp với bảng ProductReviews.
@@ -7,7 +8,7 @@ const { sql, poolPromise } = require("../config/db");
  */
 class ProductReviewModel {
   static async createTableIfNotExists() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request().query(`
       IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='ProductReviews' AND schema_id=SCHEMA_ID('dbo'))
       BEGIN

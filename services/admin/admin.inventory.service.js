@@ -3,7 +3,7 @@ const { sql, poolPromise } = require("../../config/db");
 class AdminInventoryService {
   // ✅ Cập nhật số lượng tồn kho
   static async updateStock(productId, stock) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Id", sql.Int, productId)
       .input("Stock", sql.Int, stock)
@@ -13,7 +13,7 @@ class AdminInventoryService {
 
   // ✅ Lịch sử nhập/xuất kho (nếu có bảng InventoryHistory)
   static async getHistory() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request().query(`
       SELECT TOP 50 ih.*, p.Name AS ProductName
       FROM InventoryHistory ih

@@ -3,7 +3,7 @@ const { sql, poolPromise } = require("../../config/db");
 
 class AdminEmployeeService {
   static async getAll() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool.request().query(`
       SELECT e.Id, u.Name, u.Email, u.Phone, e.Position, e.Salary, e.Status, e.HireDate
       FROM Employees e
@@ -14,7 +14,7 @@ class AdminEmployeeService {
   }
 
   static async getById(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool.request()
       .input("Id", sql.Int, id)
       .query(`
@@ -28,7 +28,7 @@ class AdminEmployeeService {
   }
 
   static async create({ Name, Email, Phone, Password, Position, Salary }) {
-    const pool = await poolPromise;
+    const pool = await getPool();
 
     const exists = await pool.request()
       .input("Email", sql.NVarChar, Email)
@@ -60,7 +60,7 @@ class AdminEmployeeService {
   }
 
   static async update(id, { Name, Phone, Position, Salary, Status }) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Id", sql.Int, id)
       .input("Name", sql.NVarChar, Name)
@@ -83,7 +83,7 @@ class AdminEmployeeService {
   }
 
   static async delete(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request().input("Id", sql.Int, id)
       .query("DELETE FROM Employees WHERE Id=@Id");
     return { message: "🗑️ Đã xóa nhân viên" };

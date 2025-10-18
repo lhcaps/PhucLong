@@ -2,7 +2,7 @@ const { sql, poolPromise } = require("../../config/db");
 
 class AdminDashboardService {
   static async getStats() {
-    const pool = await poolPromise;
+    const pool = await getPool();
 
     const [users, ordersToday, revenueToday, revenueTotal] = await Promise.all([
       pool.request().query("SELECT COUNT(*) as totalUsers FROM Users"),

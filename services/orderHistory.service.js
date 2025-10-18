@@ -1,10 +1,9 @@
 // services/orderHistory.service.js
-const { sql, poolPromise } = require("../config/db");
-
+const { sql, getPool } = require("../config/db");
 class OrderHistoryService {
   // ✅ Danh sách lịch sử đơn hàng của user
   static async getByUser(userId) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request()
       .input("UserId", sql.Int, userId)
       .query(`
@@ -29,7 +28,7 @@ class OrderHistoryService {
 
   // ✅ Chi tiết 1 đơn hàng
   static async getDetail(orderId, userId) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const orderRes = await pool.request()
       .input("Id", sql.Int, orderId)
       .input("UserId", sql.Int, userId)
@@ -90,7 +89,7 @@ class OrderHistoryService {
 
   // ✅ (Admin) Toàn bộ đơn hàng hệ thống
   static async getAll() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request().query(`
       SELECT 
         o.Id AS OrderId,

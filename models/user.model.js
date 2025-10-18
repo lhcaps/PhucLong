@@ -1,9 +1,10 @@
 // src/models/user.model.js
-const { sql, poolPromise } = require("../config/db");
+const { sql, getPool } = require("../config/db");
+
 
 const UserModel = {
   async findByEmail(email) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool.request()
       .input("Email", sql.NVarChar, email)
       .query("SELECT * FROM Users WHERE Email=@Email");
@@ -11,7 +12,7 @@ const UserModel = {
   },
 
   async findById(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool.request()
       .input("Id", sql.Int, id)
       .query("SELECT * FROM Users WHERE Id=@Id");
@@ -19,7 +20,7 @@ const UserModel = {
   },
 
   async create({ Name, Email, Phone, PasswordHash, VerifyToken, VerifyTokenExpires }) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Name", sql.NVarChar, Name)
       .input("Email", sql.NVarChar, Email)
@@ -35,7 +36,7 @@ const UserModel = {
   },
 
   async verifyAccount(token) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const now = new Date();
     const res = await pool.request()
       .input("Token", sql.NVarChar, token)

@@ -3,7 +3,7 @@ const { sql, poolPromise } = require("../../config/db");
 class AdminLoyaltyService {
   // Lấy toàn bộ lịch sử điểm thưởng
   static async getAllTransactions() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request().query(`
       SELECT 
         lt.Id, lt.UserId, u.Name AS UserName, u.Email,
@@ -19,7 +19,7 @@ class AdminLoyaltyService {
   static async adjustPoints({ userId, points, reason }) {
     if (!userId || !points) throw new Error("Thiếu userId hoặc points");
 
-    const pool = await poolPromise;
+    const pool = await getPool();
 
     // Cập nhật điểm user
     await pool.request()

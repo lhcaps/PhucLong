@@ -1,9 +1,8 @@
 // services/review.service.js
-const { sql, poolPromise } = require("../config/db");
-
+const { sql, getPool } = require("../config/db");
 class ReviewService {
   static async upsert(userId, productId, rating, comment) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const tx = new sql.Transaction(pool);
     await tx.begin();
 
@@ -66,7 +65,7 @@ class ReviewService {
   }
 
   static async listByProduct(productId) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request()
       .input("ProductId", sql.Int, productId)
       .query(`
@@ -80,7 +79,7 @@ class ReviewService {
   }
 
   static async listAll() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request().query(`
       SELECT pr.*, u.Name AS UserName, p.Name AS ProductName
       FROM ProductReviews pr
@@ -92,7 +91,7 @@ class ReviewService {
   }
 
   static async updateByAdmin(id, fields) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const req = pool.request().input("Id", sql.Int, id);
     const set = [];
     if (fields.rating != null) {
@@ -113,7 +112,7 @@ class ReviewService {
   }
 
   static async delete(id, userId = null, isAdmin = false) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const req = pool.request().input("Id", sql.Int, id);
     let query = "DELETE FROM ProductReviews WHERE Id=@Id";
     if (!isAdmin) {

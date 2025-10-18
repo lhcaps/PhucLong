@@ -4,7 +4,7 @@ const { sql, poolPromise } = require("../../config/db");
 class AdminVoucherService {
   // ✅ Danh sách tất cả vouchers (kèm thống kê lượt dùng)
   static async getAll() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const result = await pool.request().query(`
       SELECT 
         v.Id, v.Code, v.Type, v.Value, v.MaxDiscount, v.MinOrder,
@@ -32,7 +32,7 @@ class AdminVoucherService {
     if (!Code || !Type || !Value)
       throw new Error("Thiếu thông tin bắt buộc: Code, Type, Value");
 
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Code", sql.NVarChar, Code)
       .input("Type", sql.NVarChar, Type)
@@ -56,7 +56,7 @@ class AdminVoucherService {
   static async update(id, data) {
     if (!id) throw new Error("Thiếu voucher ID");
 
-    const pool = await poolPromise;
+    const pool = await getPool();
     const request = pool.request()
       .input("Id", sql.Int, id)
       .input("Code", sql.NVarChar, data.Code)
@@ -81,7 +81,7 @@ class AdminVoucherService {
 
   // ✅ Vô hiệu hoá hoặc bật lại voucher
   static async toggleActive(id, isActive) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Id", sql.Int, id)
       .input("IsActive", sql.Bit, isActive ? 1 : 0)
@@ -92,7 +92,7 @@ class AdminVoucherService {
 
   // ✅ Xoá voucher (nếu chưa có redemption)
   static async delete(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const redemption = await pool.request()
       .input("Id", sql.Int, id)
       .query("SELECT COUNT(*) AS Cnt FROM VoucherRedemptions WHERE VoucherId=@Id");
@@ -107,7 +107,7 @@ class AdminVoucherService {
 
   // ✅ Thống kê tổng quan (dashboard)
   static async getStats() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const stats = await pool.request().query(`
       SELECT
         COUNT(*) AS TotalVouchers,

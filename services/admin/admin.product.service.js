@@ -3,7 +3,7 @@ const { sql, poolPromise } = require("../../config/db");
 class AdminProductService {
   // Lấy danh sách sản phẩm
   static async getAll() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool.request()
       .query("SELECT Id, Name, Price, Stock, CategoryId, ImageUrl FROM Products ORDER BY CreatedAt DESC");
     return res.recordset;
@@ -11,7 +11,7 @@ class AdminProductService {
 
   // Lấy chi tiết sản phẩm
   static async getById(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool.request().input("Id", sql.Int, id)
       .query("SELECT * FROM Products WHERE Id=@Id");
     if (!res.recordset.length) throw new Error("Không tìm thấy sản phẩm");
@@ -20,7 +20,7 @@ class AdminProductService {
 
   // Tạo sản phẩm
   static async create({ Name, Description, Price, Stock, CategoryId, ImageUrl }) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Name", sql.NVarChar, Name)
       .input("Description", sql.NVarChar, Description)
@@ -37,7 +37,7 @@ class AdminProductService {
 
   // Cập nhật sản phẩm
   static async update(id, { Name, Description, Price, Stock, CategoryId, ImageUrl }) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Id", sql.Int, id)
       .input("Name", sql.NVarChar, Name)
@@ -57,7 +57,7 @@ class AdminProductService {
 
   // Xóa sản phẩm
   static async delete(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request().input("Id", sql.Int, id)
       .query("DELETE FROM Products WHERE Id=@Id");
     return { message: "🗑️ Đã xóa sản phẩm" };

@@ -3,7 +3,7 @@ const { sql, poolPromise } = require("../../config/db");
 class AdminOrderService {
   // Lấy danh sách đơn hàng
   static async getAll() {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool.request().query(`
       SELECT 
         o.Id, o.UserId, u.Name AS CustomerName, u.Email, o.Total, o.Status, 
@@ -17,7 +17,7 @@ class AdminOrderService {
 
   // Lấy chi tiết đơn hàng
   static async getById(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     const res = await pool.request()
       .input("Id", sql.Int, id)
       .query(`
@@ -47,7 +47,7 @@ class AdminOrderService {
     const valid = ["pending", "confirmed", "processing", "completed", "cancelled"];
     if (!valid.includes(status)) throw new Error("Trạng thái không hợp lệ");
 
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request()
       .input("Id", sql.Int, orderId)
       .input("Status", sql.NVarChar, status)
@@ -58,7 +58,7 @@ class AdminOrderService {
 
   // Xóa đơn hàng (nếu cần)
   static async delete(id) {
-    const pool = await poolPromise;
+    const pool = await getPool();
     await pool.request().input("Id", sql.Int, id)
       .query("DELETE FROM Orders WHERE Id=@Id");
     return { message: `🗑️ Đã xóa đơn hàng #${id}` };
