@@ -1,36 +1,28 @@
+// src/middleware/auth.middleware.js
 const jwt = require("jsonwebtoken");
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
 
-// ✅ Kiểm tra JWT token
 function authenticateJWT(req, res, next) {
-  const authHeader = req.headers["authorization"];
-  if (!authHeader) {
-    return res.status(401).json({ error: "No token provided" });
-  }
+  const header = req.headers.authorization;
+  if (!header) return res.status(401).json({ error: "No token" });
 
-  const [scheme, token] = authHeader.split(" ");
-
-  if (scheme !== "Bearer" || !token) {
-    return res.status(401).json({ error: "Invalid token format" });
-  }
+  const [type, token] = header.split(" ");
+  if (type !== "Bearer" || !token)
+    return res.status(401).json({ error: "Invalid format" });
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.user = payload; // { userId, role, email, iat, exp }
+    req.user = jwt.verify(token, JWT_SECRET);
     next();
-  } catch (err) {
-    return res.status(401).json({ error: "Token invalid or expired" });
+  } catch {
+    res.status(401).json({ error: "Token invalid or expired" });
   }
 }
 
-// ✅ Kiểm tra quyền admin
+// ✅ Thêm middleware kiểm tra quyền admin
 function authorizeAdmin(req, res, next) {
-  if (!req.user) {
-    return res.status(401).json({ error: "Not authenticated" });
-  }
-  if (req.user.role !== "admin") {
+  if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+  if (req.user.role !== "admin")
     return res.status(403).json({ error: "Require admin role" });
-  }
   next();
 }
 

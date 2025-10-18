@@ -1,61 +1,34 @@
-const { sql, poolPromise } = require("../config/db");
+// src/services/category.service.js
+const CategoryModel = require("../models/category.model");
 
 class CategoryService {
   static async getAll() {
-    const pool = await poolPromise;
-    const result = await pool
-      .request()
-      .query("SELECT * FROM Categories ORDER BY Name ASC");
-    return result.recordset;
+    return await CategoryModel.getAll();
   }
 
   static async getById(id) {
-    const pool = await poolPromise;
-    const result = await pool
-      .request()
-      .input("Id", sql.Int, id)
-      .query("SELECT * FROM Categories WHERE Id=@Id");
-    return result.recordset[0] || null;
+    const category = await CategoryModel.getById(id);
+    if (!category) throw new Error("Không tìm thấy danh mục");
+    return category;
   }
 
   static async create(name) {
-    const pool = await poolPromise;
-    await pool
-      .request()
-      .input("Name", sql.NVarChar, name)
-      .query("INSERT INTO Categories (Name) VALUES (@Name)");
-    return { message: "✅ Đã thêm danh mục" };
+    if (!name?.trim()) throw new Error("Tên danh mục không được để trống");
+    return await CategoryModel.create(name.trim());
   }
 
   static async update(id, name) {
-    const pool = await poolPromise;
-    await pool
-      .request()
-      .input("Id", sql.Int, id)
-      .input("Name", sql.NVarChar, name)
-      .query("UPDATE Categories SET Name=@Name WHERE Id=@Id");
-    return { message: "✅ Đã cập nhật danh mục" };
+    if (!name?.trim()) throw new Error("Tên danh mục không được để trống");
+    const updated = await CategoryModel.update(id, name.trim());
+    if (!updated) throw new Error("Không tìm thấy danh mục để cập nhật");
+    return updated;
   }
 
   static async delete(id) {
-    const pool = await poolPromise;
-    await pool
-      .request()
-      .input("Id", sql.Int, id)
-      .query("DELETE FROM Categories WHERE Id=@Id");
+    const found = await CategoryModel.getById(id);
+    if (!found) throw new Error("Danh mục không tồn tại");
+    await CategoryModel.delete(id);
     return { message: "✅ Đã xóa danh mục" };
-  }
-
-  // Lấy lịch sử điểm của user
-  static async getTransactions(userId) {
-    const pool = await poolPromise;
-    const result = await pool.request().input("UserId", sql.Int, userId).query(`
-      SELECT Id, OrderId, Points, Note, CreatedAt
-      FROM LoyaltyTransactions
-      WHERE UserId=@UserId
-      ORDER BY CreatedAt DESC
-    `);
-    return result.recordset;
   }
 }
 

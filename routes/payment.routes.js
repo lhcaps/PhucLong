@@ -5,7 +5,6 @@ const { authenticateJWT, authorizeAdmin } = require("../middleware/auth.middlewa
 
 const PaymentController = require("../controllers/payment.controller");
 const VoucherController = require("../controllers/voucher.controller");
-
 const router = express.Router();
 
 // ===== VNPay =====

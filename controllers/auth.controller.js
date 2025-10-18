@@ -1,43 +1,41 @@
+// src/controllers/auth.controller.js
 const AuthService = require("../services/auth.service");
 
 class AuthController {
   static async register(req, res) {
     try {
-      const { Name, Email, Phone, Password } = req.body;
-      await AuthService.register({ Name, Email, Phone, Password });
-      res.status(201).json({ message: "Đăng ký thành công" });
-    } catch (err) {
-      res.status(400).json({ error: err.message });
+      const msg = await AuthService.register(req.body);
+      res.status(201).json({ message: msg });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  }
+
+  static async verifyEmail(req, res) {
+    try {
+      const { token } = req.query;
+      const data = await AuthService.verifyEmail(token);
+      res.json(data);
+    } catch (e) {
+      res.status(400).json({ error: e.message });
     }
   }
 
   static async login(req, res) {
     try {
-      const { Email, Password } = req.body;
-      const tokens = await AuthService.login({ Email, Password });
-      res.json(tokens);
-    } catch (err) {
-      res.status(401).json({ error: err.message });
-    }
-  }
-
-  static async loginWithGoogle(req, res) {
-    try {
-      const { idToken } = req.body;
-      const data = await AuthService.loginWithGoogle(idToken);
+      const data = await AuthService.login(req.body);
       res.json(data);
-    } catch (err) {
-      res.status(400).json({ error: err.message });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
     }
   }
 
   static async forgotPassword(req, res) {
     try {
-      const { email } = req.body;
-      const msg = await AuthService.forgotPassword(email);
+      const msg = await AuthService.forgotPassword(req.body.email);
       res.json({ message: msg });
-    } catch (err) {
-      res.status(400).json({ error: err.message });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
     }
   }
 
@@ -47,8 +45,8 @@ class AuthController {
       const { newPassword } = req.body;
       const msg = await AuthService.resetPassword(token, newPassword);
       res.json({ message: msg });
-    } catch (err) {
-      res.status(400).json({ error: err.message });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
     }
   }
 
@@ -57,37 +55,35 @@ class AuthController {
       const { refreshToken } = req.body;
       const data = await AuthService.refreshToken(refreshToken);
       res.json(data);
-    } catch (err) {
-      res.status(401).json({ error: err.message });
+    } catch (e) {
+      res.status(401).json({ error: e.message });
     }
   }
 
   static async logout(req, res) {
     try {
-      const { refreshToken } = req.body;
-      await AuthService.revokeRefreshToken(refreshToken);
-      res.json({ message: "Đã logout" });
-    } catch (err) {
-      res.status(400).json({ error: err.message });
+      await AuthService.revokeRefreshToken(req.body.refreshToken);
+      res.json({ message: "Đã đăng xuất" });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
     }
   }
 
   static async getProfile(req, res) {
     try {
-      const user = await AuthService.getProfile(req.user.userId);
-      res.json(user);
-    } catch (err) {
-      res.status(400).json({ error: err.message });
+      const data = await AuthService.getProfile(req.user.userId);
+      res.json(data);
+    } catch (e) {
+      res.status(400).json({ error: e.message });
     }
   }
 
   static async updateProfile(req, res) {
     try {
-      const { Name, Phone } = req.body;
-      await AuthService.updateProfile(req.user.userId, { Name, Phone });
-      res.json({ message: "✅ Cập nhật hồ sơ thành công" });
-    } catch (err) {
-      res.status(400).json({ error: err.message });
+      await AuthService.updateProfile(req.user.userId, req.body);
+      res.json({ message: "Cập nhật thành công" });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
     }
   }
 
@@ -95,9 +91,9 @@ class AuthController {
     try {
       const { oldPassword, newPassword } = req.body;
       await AuthService.changePassword(req.user.userId, oldPassword, newPassword);
-      res.json({ message: "✅ Đổi mật khẩu thành công" });
-    } catch (err) {
-      res.status(400).json({ error: err.message });
+      res.json({ message: "Đổi mật khẩu thành công" });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
     }
   }
 }
