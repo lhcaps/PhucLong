@@ -66,11 +66,12 @@ app.use("/api", apiLimiter);
 // ======================================================
 // 🔓 PUBLIC ROUTES (không yêu cầu đăng nhập)
 // ======================================================
-app.use("/api/auth", loginLimiter, require("./routes/auth.routes")); 
+app.use("/api/auth", loginLimiter, require("./routes/auth.routes"));
 app.use("/api/products", require("./routes/product.routes"));
 app.use("/api/categories", require("./routes/category.routes"));
 app.use("/api/payment", require("./routes/payment.routes"));
 app.use("/api/stores", require("./routes/store.routes"));
+app.use("/api/vouchers", authenticateJWT, require("./routes/voucher.routes"));
 
 // ======================================================
 // 🔐 USER ROUTES (yêu cầu đăng nhập)
@@ -78,6 +79,11 @@ app.use("/api/stores", require("./routes/store.routes"));
 app.use("/api/cart", authenticateJWT, require("./routes/cart.routes"));
 app.use("/api/orders", authenticateJWT, require("./routes/order.routes"));
 app.use("/api/loyalty", authenticateJWT, require("./routes/loyalty.routes"));
+app.use("/api/history", authenticateJWT, require("./routes/orderHistory.routes"));
+
+// ⭐ Reviews (đánh giá sản phẩm)
+const reviewRoutes = require("./routes/review.routes");
+app.use("/api/reviews", reviewRoutes);
 
 // ======================================================
 // 🧑‍💼 ADMIN ROUTES (yêu cầu quyền admin)
@@ -89,6 +95,9 @@ app.use("/api/admin/orders", authenticateJWT, authorizeAdmin, require("./routes/
 app.use("/api/admin/products", authenticateJWT, authorizeAdmin, require("./routes/admin/admin.product.routes"));
 app.use("/api/admin/loyalty", authenticateJWT, authorizeAdmin, require("./routes/admin/admin.loyalty.routes"));
 app.use("/api/admin/inventory", authenticateJWT, authorizeAdmin, require("./routes/admin/admin.inventory.routes"));
+app.use("/api/admin/vouchers",authenticateJWT,authorizeAdmin,require("./routes/admin/admin.voucher.routes"));
+app.use("/api/admin/reviews",authenticateJWT,authorizeAdmin,require("./routes/admin/admin.review.routes"));
+app.use("/api/admin/transactions",authenticateJWT,authorizeAdmin,require("./routes/admin/admin.transaction.routes"));
 
 // ======================================================
 // ⚠️ GLOBAL ERROR HANDLER
