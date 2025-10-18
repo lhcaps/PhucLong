@@ -1,7 +1,6 @@
 
 // controllers/payment.controller.js
 const PaymentService = require("../services/payment.service");
-const VoucherController = require("./voucher.controller"); // optional reuse
 
 class PaymentController {
   static async vnpayCreate(req, res) {
